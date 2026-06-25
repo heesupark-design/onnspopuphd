@@ -1,9 +1,19 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 
+// ── localStorage 헬퍼 ─────────────────────────────────────────
+function load(key, fallback) {
+  try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; }
+  catch { return fallback; }
+}
+function save(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+}
+
+// ── 샘플 데이터 ───────────────────────────────────────────────
 const INITIAL_BRANDS = [
   { id: "b1", name: "아뜰리에 루나", emoji: "🌙" },
-  { id: "b2", name: "그린핸즈", emoji: "🪴" },
-  { id: "b3", name: "솔트앤씨", emoji: "🌊" },
+  { id: "b2", name: "그린핸즈",      emoji: "🪴" },
+  { id: "b3", name: "솔트앤씨",      emoji: "🌊" },
 ];
 const INITIAL_ITEMS = [
   { id: 101, brandId: "b1", name: "린넨 파우치 S",    price: 15000, emoji: "👜" },
@@ -12,41 +22,48 @@ const INITIAL_ITEMS = [
   { id: 201, brandId: "b2", name: "테라코타 화분",    price: 18000, emoji: "🪴" },
   { id: 202, brandId: "b2", name: "다육이 세트",      price: 25000, emoji: "🌵" },
   { id: 203, brandId: "b2", name: "이끼볼",           price: 14000, emoji: "🌿" },
-  { id: 301, brandId: "b3", name: "핸드크림 라벤더",  price: 9000,  emoji: "🧴" },
-  { id: 302, brandId: "b3", name: "핸드크림 로즈",    price: 9000,  emoji: "🧴" },
+  { id: 301, brandId: "b3", name: "핸드크림 라벤더",  price:  9000, emoji: "🧴" },
+  { id: 302, brandId: "b3", name: "핸드크림 로즈",    price:  9000, emoji: "🧴" },
   { id: 303, brandId: "b3", name: "솝바 세트",        price: 16000, emoji: "🫧" },
 ];
 const EMOJIS = ["🛍️","✨","🎀","💎","🌸","🧁","🎁","🪴","🕯️","🧴","🎨","👜","🧣","🍵","🌿","🪆","🎐","🖼️","🧸","🪡","💐","🫙","🧆","🍃","🌙","🌊","🐚","🫧","🌵","🌾","🍀","🌻","🦋","🎋","🪸"];
 
-function formatPrice(n) { return n.toLocaleString("ko-KR") + "원"; }
+// ── 유틸 함수 ─────────────────────────────────────────────────
+function formatPrice(n) {
+  return n.toLocaleString("ko-KR") + "원";
+}
 
 function nowKST() {
   return new Date().toLocaleString("ko-KR", {
-    timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit",
-    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+    timeZone: "Asia/Seoul",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+    hour12: false,
   });
 }
 
 function triggerDownload(content, filename, mime) {
   const blob = new Blob([content], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
   a.href = url; a.download = filename; a.click();
   URL.revokeObjectURL(url);
 }
 
 function downloadTemplate() {
-  const csv = ["브랜드명,상품명,가격,이모지",
+  const csv = [
+    "브랜드명,상품명,가격,이모지",
     "아뜰리에 루나,린넨 파우치 S,15000,👜",
     "그린핸즈,테라코타 화분,18000,🪴",
-    "솔트앤씨,핸드크림 라벤더,9000,🧴"].join("\n");
+    "솔트앤씨,핸드크림 라벤더,9000,🧴",
+  ].join("\n");
   triggerDownload("\uFEFF" + csv, "상품목록_템플릿.csv", "text/csv;charset=utf-8;");
 }
 
 function parseCSV(text) {
   const lines = text.replace(/\r/g, "").split("\n").filter(l => l.trim());
   if (lines.length < 2) return { brands: [], items: [], errors: ["데이터가 없어요."] };
-  const header = lines[0].split(",").map(h => h.trim().replace(/^\uFEFF/, ""));
+  const header   = lines[0].split(",").map(h => h.trim().replace(/^\uFEFF/, ""));
   const brandIdx = header.findIndex(h => h === "브랜드명");
   const nameIdx  = header.findIndex(h => h === "상품명");
   const priceIdx = header.findIndex(h => h === "가격");
@@ -55,12 +72,12 @@ function parseCSV(text) {
     return { brands: [], items: [], errors: ["헤더에 '상품명'과 '가격' 열이 필요해요."] };
   const brandMap = {}, brands = [], items = [], errors = [];
   lines.slice(1).forEach((line, i) => {
-    const cols = line.split(",").map(c => c.trim());
+    const cols      = line.split(",").map(c => c.trim());
     const brandName = brandIdx !== -1 && cols[brandIdx] ? cols[brandIdx] : "기타";
-    const name = cols[nameIdx];
-    const price = parseInt(cols[priceIdx]?.replace(/[,원\s]/g, ""), 10);
-    const emoji = emojiIdx !== -1 && cols[emojiIdx] ? cols[emojiIdx] : "🛍️";
-    if (!name) { errors.push(`${i + 2}행: 상품명이 없어요.`); return; }
+    const name      = cols[nameIdx];
+    const price     = parseInt(cols[priceIdx]?.replace(/[,원\s]/g, ""), 10);
+    const emoji     = emojiIdx !== -1 && cols[emojiIdx] ? cols[emojiIdx] : "🛍️";
+    if (!name)                    { errors.push(`${i + 2}행: 상품명이 없어요.`); return; }
     if (isNaN(price) || price <= 0) { errors.push(`${i + 2}행 [${name}]: 가격이 올바르지 않아요.`); return; }
     if (!brandMap[brandName]) {
       const bid = "b_" + Date.now() + "_" + brands.length;
@@ -78,11 +95,11 @@ function buildReceiptRow(r) {
 
 function exportHistoryCSV(history) {
   if (!history.length) return;
-  const maxItems = Math.max(...history.map(r => r.items.length));
-  const itemHeaders = Array.from({ length: maxItems }, (_, i) =>
+  const maxItems   = Math.max(...history.map(r => r.items.length));
+  const itemHdrs   = Array.from({ length: maxItems }, (_, i) =>
     [`상품${i+1}`, `수량${i+1}`, `단가${i+1}`, `소계${i+1}`]).flat();
-  const header = ["저장시간", "거래번호", "총결제액", ...itemHeaders];
-  const rows = history.map(r => {
+  const header     = ["저장시간", "거래번호", "총결제액", ...itemHdrs];
+  const rows       = history.map(r => {
     const row = buildReceiptRow(r);
     while (row.length < header.length) row.push("");
     return row;
@@ -100,31 +117,41 @@ async function sendToGoogleSheets(webhookUrl, receipt) {
   });
 }
 
+// ── 메인 컴포넌트 ─────────────────────────────────────────────
 export default function PopupPOS() {
-  const [screen,       setScreen]       = useState("pos");
-  const [brands,       setBrands]       = useState(INITIAL_BRANDS);
-  const [items,        setItems]        = useState(INITIAL_ITEMS);
-  const [cart,         setCart]         = useState({});
-  const [brandModal,   setBrandModal]   = useState(null);
-  const [toast,        setToast]        = useState("");
-  const [history,      setHistory]      = useState([]);
-  const [historyModal, setHistoryModal] = useState(false);
-  const [detailReceipt,setDetailReceipt]= useState(null);
-  const [sheetModal,   setSheetModal]   = useState(false);
-  const [webhookUrl,   setWebhookUrl]   = useState("");
-  const [webhookSaved, setWebhookSaved] = useState(false);
-  const [sheetStatus,  setSheetStatus]  = useState(null);
-  const [editItem,     setEditItem]     = useState(null);
-  const [editBrand,    setEditBrand]    = useState(null);
-  const [newItem,      setNewItem]      = useState({ brandId: "", name: "", price: "", emoji: "🛍️" });
-  const [newBrand,     setNewBrand]     = useState({ name: "", emoji: "🏪" });
-  const [showEmojiFor, setShowEmojiFor] = useState(null);
-  const [uploadModal,  setUploadModal]  = useState(false);
-  const [uploadPreview,setUploadPreview]= useState(null);
-  const [uploadMode,   setUploadMode]   = useState("replace");
-  const [confirmModal, setConfirmModal] = useState(false);
+  // ── state ──────────────────────────────────────────────────
+  const [screen,        setScreen]        = useState("pos");
+  const [brands,        setBrands]        = useState(() => load("pos_brands",        INITIAL_BRANDS));
+  const [items,         setItems]         = useState(() => load("pos_items",         INITIAL_ITEMS));
+  const [cart,          setCart]          = useState({});
+  const [brandModal,    setBrandModal]    = useState(null);
+  const [confirmModal,  setConfirmModal]  = useState(false);
+  const [toast,         setToast]         = useState("");
+  const [history,       setHistory]       = useState(() => load("pos_history",       []));
+  const [historyModal,  setHistoryModal]  = useState(false);
+  const [detailReceipt, setDetailReceipt] = useState(null);
+  const [sheetModal,    setSheetModal]    = useState(false);
+  const [webhookUrl,    setWebhookUrl]    = useState(() => load("pos_webhook_url",   ""));
+  const [webhookSaved,  setWebhookSaved]  = useState(() => load("pos_webhook_saved", false));
+  const [sheetStatus,   setSheetStatus]   = useState(null);
+  const [editItem,      setEditItem]      = useState(null);
+  const [editBrand,     setEditBrand]     = useState(null);
+  const [newItem,       setNewItem]       = useState({ brandId: "", name: "", price: "", emoji: "🛍️" });
+  const [newBrand,      setNewBrand]      = useState({ name: "", emoji: "🏪" });
+  const [showEmojiFor,  setShowEmojiFor]  = useState(null);
+  const [uploadModal,   setUploadModal]   = useState(false);
+  const [uploadPreview, setUploadPreview] = useState(null);
+  const [uploadMode,    setUploadMode]    = useState("replace");
   const fileRef = useRef();
 
+  // ── localStorage 자동 저장 ─────────────────────────────────
+  useEffect(() => { save("pos_brands",        brands);       }, [brands]);
+  useEffect(() => { save("pos_items",         items);        }, [items]);
+  useEffect(() => { save("pos_history",       history);      }, [history]);
+  useEffect(() => { save("pos_webhook_url",   webhookUrl);   }, [webhookUrl]);
+  useEffect(() => { save("pos_webhook_saved", webhookSaved); }, [webhookSaved]);
+
+  // ── 파생 값 ────────────────────────────────────────────────
   const cartItems = useMemo(() =>
     Object.entries(cart).filter(([, q]) => q > 0)
       .map(([id, qty]) => ({ ...items.find(i => i.id === Number(id)), qty }))
@@ -132,28 +159,63 @@ export default function PopupPOS() {
     [cart, items]);
   const total = cartItems.reduce((s, i) => s + i.price * i.qty, 0);
 
-  function addToCart(id) { setCart(c => ({ ...c, [id]: (c[id] || 0) + 1 })); }
+  const brandItemCount = useMemo(() => {
+    const m = {};
+    items.forEach(i => { m[i.brandId] = (m[i.brandId] || 0) + 1; });
+    return m;
+  }, [items]);
+
+  const brandCartCount = useMemo(() => {
+    const m = {};
+    cartItems.forEach(ci => {
+      const it = items.find(i => i.id === ci.id);
+      if (it) m[it.brandId] = (m[it.brandId] || 0) + ci.qty;
+    });
+    return m;
+  }, [cartItems, items]);
+
+  const modalBrand = brands.find(b => b.id === brandModal);
+  const modalItems = items.filter(i => i.brandId === brandModal);
+
+  // ── 카트 핸들러 ────────────────────────────────────────────
+  function addToCart(id) {
+    setCart(c => ({ ...c, [id]: (c[id] || 0) + 1 }));
+  }
   function removeFromCart(id) {
-    setCart(c => { const q = (c[id] || 0) - 1; if (q <= 0) { const n = { ...c }; delete n[id]; return n; } return { ...c, [id]: q }; });
+    setCart(c => {
+      const q = (c[id] || 0) - 1;
+      if (q <= 0) { const n = { ...c }; delete n[id]; return n; }
+      return { ...c, [id]: q };
+    });
   }
   function clearCart() { setCart({}); }
   function showToast(msg) { setToast(msg); setTimeout(() => setToast(""), 2200); }
 
+  // ── 결제 저장 ──────────────────────────────────────────────
   async function saveAndComplete() {
     const receipt = {
-      id: "TX" + Date.now(), time: nowKST(), total,
+      id:    "TX" + Date.now(),
+      time:  nowKST(),
+      total,
       items: cartItems.map(i => ({ name: i.name, qty: i.qty, unitPrice: i.price, subtotal: i.price * i.qty })),
     };
     setHistory(h => [receipt, ...h]);
     if (webhookSaved && webhookUrl) {
       setSheetStatus("sending");
-      try { await sendToGoogleSheets(webhookUrl, receipt); setSheetStatus("ok"); setTimeout(() => setSheetStatus(null), 3000); }
-      catch { setSheetStatus("err"); setTimeout(() => setSheetStatus(null), 4000); }
+      try {
+        await sendToGoogleSheets(webhookUrl, receipt);
+        setSheetStatus("ok");
+        setTimeout(() => setSheetStatus(null), 3000);
+      } catch {
+        setSheetStatus("err");
+        setTimeout(() => setSheetStatus(null), 4000);
+      }
     }
     clearCart();
     showToast("결제 완료 & 저장 ✅");
   }
 
+  // ── 상품 관리 핸들러 ───────────────────────────────────────
   function saveEditItem() {
     if (!editItem.name || !editItem.price) return;
     setItems(items.map(i => i.id === editItem.id ? { ...editItem, price: Number(editItem.price) } : i));
@@ -185,56 +247,90 @@ export default function PopupPOS() {
   function addBrand() {
     if (!newBrand.name) return;
     setBrands([...brands, { id: "b_" + Date.now(), name: newBrand.name, emoji: newBrand.emoji }]);
-    setNewBrand({ name: "", emoji: "🏪" }); showToast("브랜드 추가!");
+    setNewBrand({ name: "", emoji: "🏪" });
+    showToast("브랜드 추가!");
   }
   function handleFileChange(e) {
     const file = e.target.files[0]; if (!file) return;
     const reader = new FileReader();
-    reader.onload = ev => { const { brands: b, items: it, errors } = parseCSV(ev.target.result); setUploadPreview({ brands: b, items: it, errors }); };
-    reader.readAsText(file, "UTF-8"); e.target.value = "";
+    reader.onload = ev => {
+      const { brands: b, items: it, errors } = parseCSV(ev.target.result);
+      setUploadPreview({ brands: b, items: it, errors });
+    };
+    reader.readAsText(file, "UTF-8");
+    e.target.value = "";
   }
   function confirmUpload() {
     if (!uploadPreview?.items?.length) return;
-    if (uploadMode === "replace") { setBrands(uploadPreview.brands); setItems(uploadPreview.items); setCart({}); }
-    else {
-      setBrands(prev => { const ex = new Set(prev.map(b => b.name)); return [...prev, ...uploadPreview.brands.filter(b => !ex.has(b.name))]; });
+    if (uploadMode === "replace") {
+      setBrands(uploadPreview.brands); setItems(uploadPreview.items); setCart({});
+    } else {
+      setBrands(prev => {
+        const ex = new Set(prev.map(b => b.name));
+        return [...prev, ...uploadPreview.brands.filter(b => !ex.has(b.name))];
+      });
       setItems(prev => [...prev, ...uploadPreview.items]);
     }
     setUploadPreview(null); setUploadModal(false);
     showToast(`${uploadPreview.items.length}개 상품 ${uploadMode === "replace" ? "교체" : "추가"} 완료!`);
   }
 
-  const brandItemCount = useMemo(() => { const m = {}; items.forEach(i => { m[i.brandId] = (m[i.brandId] || 0) + 1; }); return m; }, [items]);
-  const brandCartCount = useMemo(() => {
-    const m = {};
-    cartItems.forEach(ci => { const it = items.find(i => i.id === ci.id); if (it) m[it.brandId] = (m[it.brandId] || 0) + ci.qty; });
-    return m;
-  }, [cartItems, items]);
-
-  const modalBrand = brands.find(b => b.id === brandModal);
-  const modalItems = items.filter(i => i.brandId === brandModal);
-
-  const font = "system-ui, sans-serif";
+  // ── 공통 스타일 ────────────────────────────────────────────
+  const font       = "system-ui, sans-serif";
   const primaryBtn = { width: "100%", background: "#1a1a1a", color: "#fff", border: "none", borderRadius: 12, padding: "14px 0", fontSize: 15, fontWeight: 700, cursor: "pointer" };
   const outlineBtn = { background: "#fff", border: "2px solid #1a1a1a", borderRadius: 12, padding: "13px 0", fontSize: 14, fontWeight: 700, cursor: "pointer" };
-  const pill = a => ({ padding: "6px 14px", borderRadius: 20, border: "none", background: a ? "#1a1a1a" : "#f0f0f0", color: a ? "#fff" : "#555", fontSize: 13, cursor: "pointer", fontWeight: 600 });
-  const modalWrap = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.48)", zIndex: 40, display: "flex", alignItems: "flex-end" };
-  const sheet = { background: "#fff", borderRadius: "20px 20px 0 0", width: "100%", maxHeight: "85vh", overflowY: "auto" };
-  const sheetHead = { padding: "16px 20px 12px", borderBottom: "1px solid #f0f0f0", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, background: "#fff", zIndex: 2 };
-  const closeBtn = { background: "none", border: "none", fontSize: 24, cursor: "pointer", color: "#999", lineHeight: 1 };
+  const pill       = a => ({ padding: "6px 14px", borderRadius: 20, border: "none", background: a ? "#1a1a1a" : "#f0f0f0", color: a ? "#fff" : "#555", fontSize: 13, cursor: "pointer", fontWeight: 600 });
+  const modalWrap  = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.48)", zIndex: 40, display: "flex", alignItems: "flex-end" };
+  const sheet      = { background: "#fff", borderRadius: "20px 20px 0 0", width: "100%", maxHeight: "85vh", overflowY: "auto" };
+  const sheetHead  = { padding: "16px 20px 12px", borderBottom: "1px solid #f0f0f0", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, background: "#fff", zIndex: 2 };
+  const closeBtn   = { background: "none", border: "none", fontSize: 24, cursor: "pointer", color: "#999", lineHeight: 1 };
 
+  // ── 렌더 ───────────────────────────────────────────────────
   return (
     <div style={{ fontFamily: font, minHeight: "100vh", background: "#faf8f5", color: "#1a1a1a" }}>
 
+      {/* 토스트 */}
       {toast && (
         <div style={{ position: "fixed", top: 20, left: "50%", transform: "translateX(-50%)", background: "#1a1a1a", color: "#fff", padding: "10px 22px", borderRadius: 40, fontSize: 14, zIndex: 999, opacity: .92, whiteSpace: "nowrap", pointerEvents: "none" }}>
           {toast}
         </div>
       )}
 
+      {/* 구글 시트 상태 배너 */}
       {sheetStatus && (
         <div style={{ position: "fixed", bottom: 16, left: "50%", transform: "translateX(-50%)", padding: "10px 20px", borderRadius: 40, fontSize: 13, fontWeight: 600, zIndex: 998, whiteSpace: "nowrap", background: sheetStatus === "sending" ? "#e0f0ff" : sheetStatus === "ok" ? "#d1fae5" : "#fee2e2", color: sheetStatus === "sending" ? "#0369a1" : sheetStatus === "ok" ? "#065f46" : "#991b1b" }}>
           {sheetStatus === "sending" ? "📡 구글 시트 전송 중..." : sheetStatus === "ok" ? "✅ 구글 시트 저장됨" : "⚠️ 구글 시트 전송 실패"}
+        </div>
+      )}
+
+      {/* 결제 확인 모달 */}
+      {confirmModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 24px" }} onClick={() => setConfirmModal(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 20, padding: 24, width: "100%", maxWidth: 360 }}>
+            <div style={{ textAlign: "center", marginBottom: 20 }}>
+              <div style={{ fontSize: 36, marginBottom: 10 }}>🧾</div>
+              <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 6 }}>결제를 저장할까요?</div>
+              <div style={{ fontSize: 13, color: "#888", marginBottom: 16 }}>
+                {cartItems.length}종 {cartItems.reduce((s, i) => s + i.qty, 0)}개 상품
+              </div>
+              <div style={{ background: "#f8f8f8", borderRadius: 12, padding: "12px 16px", marginBottom: 4 }}>
+                {cartItems.map(item => (
+                  <div key={item.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0", color: "#555" }}>
+                    <span>{item.name} × {item.qty}</span>
+                    <span style={{ fontWeight: 600 }}>{formatPrice(item.price * item.qty)}</span>
+                  </div>
+                ))}
+                <div style={{ borderTop: "1px solid #e8e8e8", marginTop: 8, paddingTop: 8, display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ fontWeight: 700 }}>합계</span>
+                  <span style={{ fontWeight: 800, fontSize: 16 }}>{formatPrice(total)}</span>
+                </div>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={() => setConfirmModal(false)} style={{ flex: 1, background: "#f0f0f0", border: "none", borderRadius: 12, padding: "14px 0", fontSize: 14, fontWeight: 600, cursor: "pointer", color: "#555" }}>취소</button>
+              <button onClick={() => { setConfirmModal(false); saveAndComplete(); }} style={{ flex: 2, ...primaryBtn }}>저장 확인</button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -294,7 +390,7 @@ export default function PopupPOS() {
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {history.map(r => (
-                    <div key={r.id} style={{ background: "#fff", borderRadius: 14, padding: "13px 15px", border: "1.5px solid #eee", cursor: "pointer" }} onClick={() => setDetailReceipt(r)}>
+                    <div key={r.id} onClick={() => setDetailReceipt(r)} style={{ background: "#fff", borderRadius: 14, padding: "13px 15px", border: "1.5px solid #eee", cursor: "pointer" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
                         <div>
                           <div style={{ fontSize: 13, fontWeight: 700 }}>{formatPrice(r.total)}</div>
@@ -374,6 +470,11 @@ export default function PopupPOS() {
   return ContentService
     .createTextOutput(JSON.stringify({ok:true}))
     .setMimeType(ContentService.MimeType.JSON);
+}
+function doGet(e) {
+  return ContentService
+    .createTextOutput(JSON.stringify({ok:true}))
+    .setMimeType(ContentService.MimeType.JSON);
 }`}
                 </div>
                 <div>3. 배포 → 새 배포 → 웹 앱</div>
@@ -381,8 +482,12 @@ export default function PopupPOS() {
                 <div>5. 생성된 URL을 아래에 입력</div>
               </div>
               <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 6 }}>웹 앱 URL</label>
-              <input value={webhookUrl} onChange={e => setWebhookUrl(e.target.value)} placeholder="https://script.google.com/macros/s/.../exec"
-                style={{ width: "100%", border: "1.5px solid #ddd", borderRadius: 10, padding: "11px 12px", fontSize: 13, boxSizing: "border-box", marginBottom: 12 }} />
+              <input
+                value={webhookUrl}
+                onChange={e => setWebhookUrl(e.target.value)}
+                placeholder="https://script.google.com/macros/s/.../exec"
+                style={{ width: "100%", border: "1.5px solid #ddd", borderRadius: 10, padding: "11px 12px", fontSize: 13, boxSizing: "border-box", marginBottom: 12 }}
+              />
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={() => { setWebhookUrl(""); setWebhookSaved(false); showToast("연동 해제됨"); }} style={{ flex: 1, background: "#f5f5f5", border: "none", borderRadius: 10, padding: "12px 0", fontSize: 13, cursor: "pointer", fontWeight: 600, color: "#666" }}>연동 해제</button>
                 <button onClick={() => { if (!webhookUrl.startsWith("https://")) { showToast("올바른 URL을 입력해주세요"); return; } setWebhookSaved(true); setSheetModal(false); showToast("구글 시트 연동 완료 ✅"); }} style={{ flex: 2, background: webhookUrl ? "#1a1a1a" : "#ccc", color: "#fff", border: "none", borderRadius: 10, padding: "12px 0", fontSize: 14, fontWeight: 700, cursor: webhookUrl ? "pointer" : "not-allowed" }}>저장</button>
@@ -455,37 +560,6 @@ export default function PopupPOS() {
         </div>
       )}
 
-      {/* 결제 확인 모달 */}
-      {confirmModal && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 24px" }} onClick={() => setConfirmModal(false)}>
-          <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 20, padding: 24, width: "100%", maxWidth: 360 }}>
-            <div style={{ textAlign: "center", marginBottom: 20 }}>
-              <div style={{ fontSize: 36, marginBottom: 10 }}>🧾</div>
-              <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 6 }}>결제를 저장할까요?</div>
-              <div style={{ fontSize: 13, color: "#888", marginBottom: 16 }}>
-                {cartItems.length}종 {cartItems.reduce((s, i) => s + i.qty, 0)}개 상품
-              </div>
-              <div style={{ background: "#f8f8f8", borderRadius: 12, padding: "12px 16px", marginBottom: 4 }}>
-                {cartItems.map(item => (
-                  <div key={item.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0", color: "#555" }}>
-                    <span>{item.name} × {item.qty}</span>
-                    <span style={{ fontWeight: 600 }}>{formatPrice(item.price * item.qty)}</span>
-                  </div>
-                ))}
-                <div style={{ borderTop: "1px solid #e8e8e8", marginTop: 8, paddingTop: 8, display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ fontWeight: 700 }}>합계</span>
-                  <span style={{ fontWeight: 800, fontSize: 16 }}>{formatPrice(total)}</span>
-                </div>
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={() => setConfirmModal(false)} style={{ flex: 1, background: "#f0f0f0", border: "none", borderRadius: 12, padding: "14px 0", fontSize: 14, fontWeight: 600, cursor: "pointer", color: "#555" }}>취소</button>
-              <button onClick={() => { setConfirmModal(false); saveAndComplete(); }} style={{ flex: 2, background: "#1a1a1a", color: "#fff", border: "none", borderRadius: 12, padding: "14px 0", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>저장 확인</button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* 헤더 */}
       <div style={{ background: "#fff", borderBottom: "1px solid #eee", padding: "0 16px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 56, position: "sticky", top: 0, zIndex: 10 }}>
         <span style={{ fontWeight: 700, fontSize: 18, letterSpacing: "-0.5px" }}>🛒 팝업 계산대</span>
@@ -499,21 +573,20 @@ export default function PopupPOS() {
               </span>
             )}
           </button>
-          <button onClick={() => setScreen("pos")} style={pill(screen === "pos")}>계산</button>
+          <button onClick={() => setScreen("pos")}    style={pill(screen === "pos")}>계산</button>
           <button onClick={() => setScreen("manage")} style={pill(screen === "manage")}>상품관리</button>
         </div>
       </div>
 
+      {/* ── 계산 화면 ── */}
       {screen === "pos" ? (
         <div>
-          {/* 브랜드 1열 리스트 */}
           <div style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
             {brands.map(brand => {
-              const cnt = brandCartCount[brand.id] || 0;
+              const cnt     = brandCartCount[brand.id] || 0;
               const itemCnt = brandItemCount[brand.id] || 0;
               return (
-                <button key={brand.id} onClick={() => setBrandModal(brand.id)}
-                  style={{ display: "flex", alignItems: "center", gap: 14, background: cnt > 0 ? "#1a1a1a" : "#fff", border: `2px solid ${cnt > 0 ? "#1a1a1a" : "#eee"}`, borderRadius: 16, padding: "14px 16px", cursor: "pointer", textAlign: "left", width: "100%" }}>
+                <button key={brand.id} onClick={() => setBrandModal(brand.id)} style={{ display: "flex", alignItems: "center", gap: 14, background: cnt > 0 ? "#1a1a1a" : "#fff", border: `2px solid ${cnt > 0 ? "#1a1a1a" : "#eee"}`, borderRadius: 16, padding: "14px 16px", cursor: "pointer", textAlign: "left", width: "100%" }}>
                   <span style={{ fontSize: 32, flexShrink: 0 }}>{brand.emoji}</span>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 15, fontWeight: 700, color: cnt > 0 ? "#fff" : "#1a1a1a" }}>{brand.name}</div>
@@ -526,7 +599,6 @@ export default function PopupPOS() {
             })}
           </div>
 
-          {/* 카트 */}
           {cartItems.length > 0 && (
             <div style={{ background: "#fff", borderTop: "1px solid #eee", padding: 16, marginTop: 4 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
@@ -562,7 +634,9 @@ export default function PopupPOS() {
             </div>
           )}
         </div>
+
       ) : (
+        /* ── 상품관리 화면 ── */
         <div style={{ padding: 16 }}>
           <button onClick={() => { setUploadModal(true); setUploadPreview(null); }} style={{ width: "100%", background: "#fff", border: "2px solid #1a1a1a", borderRadius: 12, padding: "13px 0", fontSize: 14, fontWeight: 700, cursor: "pointer", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
             <span>📂</span> CSV로 일괄 업로드
@@ -584,7 +658,7 @@ export default function PopupPOS() {
             )}
           </div>
 
-          {/* 브랜드별 상품 */}
+          {/* 브랜드별 상품 목록 */}
           {brands.map(brand => (
             <div key={brand.id} style={{ marginBottom: 16 }}>
               {editBrand?.id === brand.id ? (
@@ -619,7 +693,7 @@ export default function PopupPOS() {
                       <div>
                         <div style={{ display: "flex", gap: 7, marginBottom: 8 }}>
                           <button onClick={() => setShowEmojiFor(showEmojiFor === "editItem" ? null : "editItem")} style={{ fontSize: 20, background: "#f5f5f5", border: "1.5px solid #ddd", borderRadius: 9, padding: "5px 9px", cursor: "pointer" }}>{editItem.emoji}</button>
-                          <input value={editItem.name} onChange={e => setEditItem(ei => ({ ...ei, name: e.target.value }))} style={{ flex: 2, border: "1.5px solid #ddd", borderRadius: 9, padding: "8px 10px", fontSize: 13 }} />
+                          <input value={editItem.name}  onChange={e => setEditItem(ei => ({ ...ei, name: e.target.value }))}  style={{ flex: 2, border: "1.5px solid #ddd", borderRadius: 9, padding: "8px 10px", fontSize: 13 }} />
                           <input value={editItem.price} onChange={e => setEditItem(ei => ({ ...ei, price: e.target.value }))} type="number" style={{ flex: 1, border: "1.5px solid #ddd", borderRadius: 9, padding: "8px 10px", fontSize: 13 }} />
                         </div>
                         {showEmojiFor === "editItem" && (
@@ -629,7 +703,7 @@ export default function PopupPOS() {
                         )}
                         <div style={{ display: "flex", gap: 7 }}>
                           <button onClick={() => setEditItem(null)} style={{ flex: 1, background: "#f0f0f0", border: "none", borderRadius: 8, padding: "8px 0", fontSize: 12, cursor: "pointer" }}>취소</button>
-                          <button onClick={saveEditItem} style={{ flex: 2, background: "#1a1a1a", color: "#fff", border: "none", borderRadius: 8, padding: "8px 0", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>저장</button>
+                          <button onClick={saveEditItem}            style={{ flex: 2, background: "#1a1a1a", color: "#fff", border: "none", borderRadius: 8, padding: "8px 0", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>저장</button>
                         </div>
                       </div>
                     ) : (
@@ -645,11 +719,11 @@ export default function PopupPOS() {
                     )}
                   </div>
                 ))}
-                {/* 상품 추가 인라인 */}
+                {/* 상품 인라인 추가 */}
                 <div style={{ background: "#fafafa", borderRadius: 12, padding: "10px 13px", border: "1.5px dashed #ddd" }}>
                   <div style={{ display: "flex", gap: 7 }}>
                     <button onClick={() => setShowEmojiFor(showEmojiFor === `new_${brand.id}` ? null : `new_${brand.id}`)} style={{ fontSize: 18, background: "#f0f0f0", border: "1.5px solid #ddd", borderRadius: 8, padding: "5px 8px", cursor: "pointer" }}>{newItem.brandId === brand.id ? newItem.emoji : "🛍️"}</button>
-                    <input value={newItem.brandId === brand.id ? newItem.name : ""} onChange={e => setNewItem({ ...newItem, brandId: brand.id, name: e.target.value })} onFocus={() => setNewItem(n => ({ ...n, brandId: brand.id }))} placeholder="상품명" style={{ flex: 2, border: "1.5px solid #ddd", borderRadius: 8, padding: "7px 9px", fontSize: 13 }} />
+                    <input value={newItem.brandId === brand.id ? newItem.name  : ""} onChange={e => setNewItem({ ...newItem, brandId: brand.id, name: e.target.value })}  onFocus={() => setNewItem(n => ({ ...n, brandId: brand.id }))} placeholder="상품명" style={{ flex: 2, border: "1.5px solid #ddd", borderRadius: 8, padding: "7px 9px", fontSize: 13 }} />
                     <input value={newItem.brandId === brand.id ? newItem.price : ""} onChange={e => setNewItem({ ...newItem, brandId: brand.id, price: e.target.value })} onFocus={() => setNewItem(n => ({ ...n, brandId: brand.id }))} placeholder="가격" type="number" style={{ flex: 1, border: "1.5px solid #ddd", borderRadius: 8, padding: "7px 9px", fontSize: 13 }} />
                     <button onClick={() => { setNewItem(n => ({ ...n, brandId: brand.id })); addItem(); }} disabled={newItem.brandId !== brand.id || !newItem.name || !newItem.price} style={{ padding: "7px 13px", background: newItem.brandId === brand.id && newItem.name && newItem.price ? "#1a1a1a" : "#ccc", color: "#fff", border: "none", borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: newItem.brandId === brand.id && newItem.name && newItem.price ? "pointer" : "not-allowed" }}>추가</button>
                   </div>
